@@ -19,8 +19,6 @@ const ACTIVE_STOCK_HEADERS = 'id,name,buyDate,buyPrice,targetPrice,quantity';
 const CLOSED_POSITION_HEADERS = 'id,name,buyDate,buyPrice,quantity,buyValue,sellDate,sellPrice,sellValue,gain,daysHeld,percentGain,annualizedGainPercent';
 const STOCK_NAMES_HEADERS = 'name'; // Headers for the new CSV
 
-const FIVE_MINUTES_IN_MS = 5 * 60 * 1000;
-
 async function ensureDataDirExists(): Promise<void> {
   try {
     await fs.access(DATA_DIR);
@@ -132,22 +130,8 @@ async function fetchGoogleSheetCsvData(): Promise<string> {
 async function updateStockNamesCsvIfNeeded(): Promise<void> {
   await ensureDataDirExists();
   try {
-    let needsUpdate = false;
-    try {
-      const stats = await fs.stat(STOCK_NAMES_CSV_PATH);
-      if (Date.now() - stats.mtime.getTime() > FIVE_MINUTES_IN_MS) {
-        needsUpdate = true;
-      }
-    } catch (e) { // File doesn't exist
-      needsUpdate = true;
-    }
-
-    if (!needsUpdate) {
-      // console.log("Stock_Name.csv is up-to-date.");
-      return;
-    }
-
-    console.log("Stock_Name.csv needs update. Fetching from Google Sheet...");
+    // Removed time-based check to update on every call
+    console.log("Fetching from Google Sheet to update Stock_Name.csv...");
     const csvText = await fetchGoogleSheetCsvData();
 
     if (!csvText) {
