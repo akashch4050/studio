@@ -130,7 +130,7 @@ export function SellStockDialog({ stock }: SellStockDialogProps) {
         <DialogHeader>
           <DialogTitle>Sell {stock.name}</DialogTitle>
           <DialogDescription>
-            Record the sale of {stock.quantity} shares of {stock.name}. Current price: ${stock.currentPrice.toFixed(2)}.
+            Record the sale of {stock.quantity} shares of {stock.name}. Current price: ₹{stock.currentPrice.toFixed(2)}.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -189,5 +189,3 @@ export function SellStockDialog({ stock }: SellStockDialogProps) {
     </Dialog>
   );
 }
-
-    

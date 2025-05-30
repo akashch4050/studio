@@ -1,3 +1,4 @@
+
 import { getPortfolioWithDetails } from '@/app/actions';
 import { PortfolioItemCard } from '@/components/PortfolioItemCard';
 import { Button } from '@/components/ui/button';
@@ -23,23 +24,23 @@ export default async function PortfolioPage() {
           <div>
             <p className="text-sm text-muted-foreground">Total Value</p>
             <p className="text-2xl font-semibold">
-              ${totalPortfolioValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ₹{totalPortfolioValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
           </div>
           <div>
             <p className="text-sm text-muted-foreground">Total Investment</p>
             <p className="text-2xl font-semibold">
-              ${totalInvestmentValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ₹{totalInvestmentValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
           </div>
           <div>
-            <p className="text-sm text-muted-foreground">Overall P&L</p>
+            <p className="text-sm text-muted-foreground">Overall P&amp;L</p>
             <p className={`text-2xl font-semibold ${overallGainLoss >= 0 ? 'text-accent' : 'text-destructive'}`}>
-              {overallGainLoss >= 0 ? '+' : ''}${overallGainLoss.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {overallGainLoss >= 0 ? '+' : ''}₹{overallGainLoss.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
           </div>
           <div>
-            <p className="text-sm text-muted-foreground">Overall P&L %</p>
+            <p className="text-sm text-muted-foreground">Overall P&amp;L %</p>
             <p className={`text-2xl font-semibold ${overallGainLossPercent >= 0 ? 'text-accent' : 'text-destructive'}`}>
               {overallGainLossPercent >= 0 ? '+' : ''}{overallGainLossPercent.toFixed(2)}%
             </p>

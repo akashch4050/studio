@@ -1,3 +1,4 @@
+
 import type { PortfolioItem } from '@/lib/definitions';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { TrendingUp, TrendingDown, Target, CalendarDays, Percent, Layers } from 'lucide-react';
@@ -35,30 +36,30 @@ export function PortfolioItemCard({ item }: PortfolioItemCardProps) {
             <CalendarDays className="h-4 w-4 text-primary" />
             <span>Days Held: {item.daysSinceBuy}</span>
           </div>
-          <div>Buy Price: ${item.buyPrice.toFixed(2)}</div>
-          <div>Current Price: ${item.currentPrice.toFixed(2)}</div>
-          <div>Investment: ${(item.buyPrice * item.quantity).toFixed(2)}</div>
-          <div>Current Value: ${item.currentValue.toFixed(2)}</div>
+          <div>Buy Price: ₹{item.buyPrice.toFixed(2)}</div>
+          <div>Current Price: ₹{item.currentPrice.toFixed(2)}</div>
+          <div>Investment: ₹{(item.buyPrice * item.quantity).toFixed(2)}</div>
+          <div>Current Value: ₹{item.currentValue.toFixed(2)}</div>
         </div>
         
         <div className="pt-2 border-t">
           <div className="flex items-center justify-between text-sm">
-            <span className="font-medium">P&L:</span>
+            <span className="font-medium">P&amp;L:</span>
             <span className={`font-semibold flex items-center gap-1 ${gainLossColor}`}>
               {gainLossIcon}
-              {item.gainLoss >= 0 ? '+' : ''}${item.gainLoss.toFixed(2)} ({item.gainLossPercent.toFixed(2)}%)
+              {item.gainLoss >= 0 ? '+' : ''}₹{item.gainLoss.toFixed(2)} ({item.gainLossPercent.toFixed(2)}%)
             </span>
           </div>
           {item.targetPrice > 0 && (
             <div className="flex items-center justify-between text-sm mt-1">
               <span className="font-medium flex items-center gap-1"><Target className="h-4 w-4 text-primary" />Target:</span>
-              <span className="font-semibold">${item.targetPrice.toFixed(2)}</span>
+              <span className="font-semibold">₹{item.targetPrice.toFixed(2)}</span>
             </div>
           )}
           {item.remainingGain !== undefined && item.remainingGain > 0 && (
              <div className="flex items-center justify-between text-sm mt-1">
              <span className="font-medium">To Target:</span>
-             <span className="font-semibold text-primary">+${item.remainingGain.toFixed(2)}</span>
+             <span className="font-semibold text-primary">+₹{item.remainingGain.toFixed(2)}</span>
            </div>
           )}
            {item.portfolioWeightage !== undefined && (

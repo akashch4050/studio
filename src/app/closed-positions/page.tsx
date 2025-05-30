@@ -59,7 +59,7 @@ export default async function ClosedPositionsPage() {
             <div>
               <p className="text-sm text-muted-foreground flex items-center justify-center gap-1"><DollarSign className="h-4 w-4" />Total Sell Value</p>
               <p className="text-2xl font-semibold">
-                ${totalSellValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                ₹{totalSellValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
             </div>
             <div>
@@ -68,13 +68,13 @@ export default async function ClosedPositionsPage() {
                 Total Profit
               </p>
               <p className={`text-2xl font-semibold ${totalProfit >= 0 ? 'text-accent' : 'text-destructive'}`}>
-                {totalProfit >= 0 ? '+' : ''}${totalProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {totalProfit >= 0 ? '+' : ''}₹{totalProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
             </div>
             <div>
               <p className={`text-sm text-muted-foreground flex items-center justify-center gap-1 ${overallPnlPercent === undefined || overallPnlPercent >= 0 ? 'text-accent' : 'text-destructive'}`}>
                 <Percent className="h-4 w-4" />
-                Overall P&L %
+                Overall P&amp;L %
               </p>
               <p className={`text-2xl font-semibold ${overallPnlPercent === undefined || overallPnlPercent >= 0 ? 'text-accent' : 'text-destructive'}`}>
                 {overallPnlPercent !== undefined 
@@ -138,13 +138,13 @@ export default async function ClosedPositionsPage() {
                       <TableCell className="font-medium">{pos.name}</TableCell>
                       <TableCell className="text-right">{pos.quantity}</TableCell>
                       <TableCell>{new Date(pos.buyDate).toLocaleDateString()}</TableCell>
-                      <TableCell className="text-right">${pos.buyPrice.toFixed(2)}</TableCell>
-                      <TableCell className="text-right">${pos.buyValue.toFixed(2)}</TableCell>
+                      <TableCell className="text-right">₹{pos.buyPrice.toFixed(2)}</TableCell>
+                      <TableCell className="text-right">₹{pos.buyValue.toFixed(2)}</TableCell>
                       <TableCell>{new Date(pos.sellDate).toLocaleDateString()}</TableCell>
-                      <TableCell className="text-right">${pos.sellPrice.toFixed(2)}</TableCell>
-                      <TableCell className="text-right">${pos.sellValue.toFixed(2)}</TableCell>
+                      <TableCell className="text-right">₹{pos.sellPrice.toFixed(2)}</TableCell>
+                      <TableCell className="text-right">₹{pos.sellValue.toFixed(2)}</TableCell>
                       <TableCell className={`text-right font-semibold ${pos.gain >= 0 ? 'text-accent' : 'text-destructive'}`}>
-                        {pos.gain >= 0 ? '+' : ''}${pos.gain.toFixed(2)}
+                        {pos.gain >= 0 ? '+' : ''}₹{pos.gain.toFixed(2)}
                       </TableCell>
                       <TableCell className="text-right">{pos.daysHeld}</TableCell>
                       <TableCell className="text-right">
