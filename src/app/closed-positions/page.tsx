@@ -1,3 +1,4 @@
+
 import { getClosedPositions } from '@/app/actions';
 import {
   Table,
@@ -11,6 +12,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Archive, PackageOpen } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { DeleteClosedPositionDialog } from '@/components/DeleteClosedPositionDialog';
 
 export default async function ClosedPositionsPage() {
   const closedPositions = await getClosedPositions();
@@ -51,6 +53,7 @@ export default async function ClosedPositionsPage() {
                     <TableHead className="text-right">Days Held</TableHead>
                     <TableHead className="text-right">% Gain</TableHead>
                     <TableHead className="text-right">% Annual Gain</TableHead>
+                    <TableHead className="text-center">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -75,6 +78,9 @@ export default async function ClosedPositionsPage() {
                       </TableCell>
                       <TableCell className="text-right">
                          {pos.annualizedGainPercent !== undefined ? `${pos.annualizedGainPercent.toFixed(2)}%` : 'N/A'}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <DeleteClosedPositionDialog positionId={pos.id} positionName={pos.name} />
                       </TableCell>
                     </TableRow>
                   ))}
