@@ -72,7 +72,7 @@ export async function addStockPurchase(prevState: any, formData: FormData) {
   const csvData = await ensureGoogleSheetCsvDataFetched();
   if (!csvData) {
     return {
-      errors: { ...validatedFields.error.flatten().fieldErrors, name: ["Could not load stock list from Google Sheet. Please try again later."] },
+      errors: { name: ["Could not load stock list from Google Sheet. Please try again later."] },
       message: 'Failed to validate stock name due to data loading issue from Google Sheet.',
     };
   }
@@ -90,7 +90,6 @@ export async function addStockPurchase(prevState: any, formData: FormData) {
   if (!validStockNamesFromSheet.includes(data.name)) {
     return {
       errors: {
-        ...validatedFields.error.flatten().fieldErrors,
         name: ["Please select a valid stock from the suggestions list. The stock name is not found in the linked Google Sheet."],
       },
       message: 'Invalid stock name provided. It does not match any stock in the Google Sheet.',
@@ -239,3 +238,4 @@ export async function getStockSuggestions(query: string): Promise<StockSuggestio
     
   return suggestions.slice(0, 10); // Limit suggestions
 }
+
