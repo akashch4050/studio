@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useActionState, startTransition } from 'react';
+import { useFormStatus } from 'react-dom'; // Import useFormStatus
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -28,7 +29,7 @@ const AddStockFormSchema = z.object({
 type AddStockFormValues = z.infer<typeof AddStockFormSchema>;
 
 function SubmitButton() {
-  const { pending } = useActionState();
+  const { pending } = useFormStatus(); // Use useFormStatus here
   return (
     <Button type="submit" className="w-full" disabled={pending}>
       {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
@@ -261,3 +262,4 @@ export function AddStockForm() {
     </form>
   );
 }
+
