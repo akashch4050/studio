@@ -11,13 +11,13 @@ import path from 'path';
 const DATA_DIR = path.join(process.cwd(), 'Data');
 const ACTIVE_STOCK_CSV_PATH = path.join(DATA_DIR, 'Active_Stock.csv');
 const CLOSED_POSITIONS_CSV_PATH = path.join(DATA_DIR, 'Closed_Positions.csv');
-const STOCK_NAMES_CSV_PATH = path.join(DATA_DIR, 'Stock_Name.csv'); // New CSV for stock names
+const STOCK_NAMES_CSV_PATH = path.join(DATA_DIR, 'Stock_Name.csv'); // Stores name and Current_Price
 
 const GOOGLE_SHEET_URL_PLACEHOLDER = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRMjtSRxkcX_Tmc_ru9O7xPxaymgKPDiy_tThfBwklQbDP6JjCDTxSN-OaXS6P6Dqits72O7k8GQKAz/pub?gid=0&single=true&output=csv";
 
 const ACTIVE_STOCK_HEADERS = 'id,name,buyDate,buyPrice,targetPrice,quantity';
 const CLOSED_POSITION_HEADERS = 'id,name,buyDate,buyPrice,quantity,buyValue,sellDate,sellPrice,sellValue,gain,daysHeld,percentGain,annualizedGainPercent';
-const STOCK_NAMES_HEADERS = 'name'; // Headers for the new CSV
+const STOCK_NAMES_HEADERS = 'name,Current_Price'; // Updated headers
 
 async function ensureDataDirExists(): Promise<void> {
   try {
@@ -32,8 +32,8 @@ async function readCsvFile<T>(filePath: string, headers: string, parser: (row: s
     await fs.access(filePath);
     const fileContent = await fs.readFile(filePath, 'utf-8');
     const lines = fileContent.trim().split('\n');
-    if (lines.length === 0) { // Handle completely empty file
-        await fs.writeFile(filePath, headers + '\n', 'utf-8'); // Ensure headers exist
+    if (lines.length === 0) {
+        await fs.writeFile(filePath, headers + '\n', 'utf-8');
         return [];
     }
     if (lines[0].trim() !== headers) {
@@ -41,7 +41,7 @@ async function readCsvFile<T>(filePath: string, headers: string, parser: (row: s
         await fs.writeFile(filePath, headers + '\n', 'utf-8');
         return [];
     }
-    if (lines.length <= 1) { // Only headers or empty after headers
+    if (lines.length <= 1) {
         return [];
     }
     return lines.slice(1).map(line => {
@@ -49,7 +49,6 @@ async function readCsvFile<T>(filePath: string, headers: string, parser: (row: s
       return parser(values);
     }).filter((item): item is T => item !== null);
   } catch (error) {
-    // If file doesn't exist or other read error, create it with headers
     console.warn(`Error reading ${filePath}, ensuring it exists with headers. Error: ${error}`);
     await fs.writeFile(filePath, headers + '\n', 'utf-8');
     return [];
@@ -104,102 +103,95 @@ const stringifyClosedPosition = (pos: ClosedPosition): string =>
     pos.percentGain.toString(), pos.annualizedGainPercent?.toString() || ''
   ].join(',');
 
-// Parser and stringifier for Stock_Name.csv
-const parseStockNameEntry = (row: string[]): { name: string } | null => {
-  return row[0] ? { name: row[0].trim() } : null;
+// Parser and stringifier for Stock_Name.csv (stores name and Current_Price)
+interface StockNameAndPriceEntry {
+  name: string;
+  currentPrice: number;
+}
+
+const parseStockNameAndPriceEntry = (row: string[]): StockNameAndPriceEntry | null => {
+  if (row.length < 2) return null;
+  const [name, currentPriceStr] = row;
+  const currentPrice = parseFloat(currentPriceStr);
+  if (!name || isNaN(currentPrice)) return null;
+  return { name: name.trim(), currentPrice };
 };
 
-const stringifyStockNameEntry = (item: { name: string }): string => item.name;
+const stringifyStockNameAndPriceEntry = (item: StockNameAndPriceEntry): string =>
+  [item.name, item.currentPrice.toString()].join(',');
 
 
 async function fetchGoogleSheetCsvData(): Promise<string> {
   try {
-    const response = await fetch(GOOGLE_SHEET_URL_PLACEHOLDER, { next: { revalidate: 300 } }); // Revalidate every 5 minutes for direct use
+    const response = await fetch(GOOGLE_SHEET_URL_PLACEHOLDER, { next: { revalidate: 300 } }); // Revalidate every 5 minutes
     if (!response.ok) {
       console.error(`Failed to fetch Google Sheet: ${response.status} ${response.statusText}. URL: ${GOOGLE_SHEET_URL_PLACEHOLDER}`);
-      return ""; // Return empty string on fetch failure
+      return "";
     }
     const csvText = await response.text();
     return csvText;
   } catch (error) {
     console.error("Error fetching Google Sheet data:", error);
-    return ""; // Return empty string on exception
+    return "";
   }
 }
 
-async function updateStockNamesCsvIfNeeded(): Promise<void> {
+async function updateStockNamesAndPricesCsv(): Promise<void> {
   await ensureDataDirExists();
   try {
-    // Removed time-based check to update on every call
-    console.log("Fetching from Google Sheet to update Stock_Name.csv...");
+    console.log("Fetching from Google Sheet to update Stock_Name.csv with names and prices...");
     const csvText = await fetchGoogleSheetCsvData();
 
     if (!csvText) {
       console.warn("Stock_Name.csv update: Failed to fetch Google Sheet data. Local CSV will not be updated.");
-      return; // Do not update local CSV if fetch failed
+      return;
     }
 
     const lines = csvText.trim().split(/\r?\n/);
-    if (lines.length < 2) { // Needs at least header and one data line
+    if (lines.length < 2) {
       console.warn("Stock_Name.csv update: Google Sheet CSV is empty or contains only headers. Writing empty Stock_Name.csv.");
-      await writeCsvFile(STOCK_NAMES_CSV_PATH, [], STOCK_NAMES_HEADERS, stringifyStockNameEntry);
+      await writeCsvFile(STOCK_NAMES_CSV_PATH, [], STOCK_NAMES_HEADERS, stringifyStockNameAndPriceEntry);
       return;
     }
 
     const headersFromSheet = lines[0].split(',').map(h => h.trim());
     const nameHeaderIndex = headersFromSheet.indexOf('name');
+    const priceHeaderIndex = headersFromSheet.indexOf('Current_Price');
 
-    if (nameHeaderIndex === -1) {
-      console.error("Stock_Name.csv update: 'name' column not found in Google Sheet. Local CSV will not be updated.");
+    if (nameHeaderIndex === -1 || priceHeaderIndex === -1) {
+      console.error("Stock_Name.csv update: 'name' or 'Current_Price' column not found in Google Sheet. Local CSV will not be updated.");
       return;
     }
 
-    const stockNameObjects = lines.slice(1)
+    const stockEntries: StockNameAndPriceEntry[] = lines.slice(1)
       .map(line => {
         const values = line.split(',');
         const name = values[nameHeaderIndex]?.trim();
-        return name ? { name } : null;
+        const priceStr = values[priceHeaderIndex]?.trim();
+        if (name && priceStr) {
+          const currentPrice = parseFloat(priceStr);
+          if (!isNaN(currentPrice)) {
+            return { name, currentPrice };
+          }
+        }
+        return null;
       })
-      .filter((item): item is { name: string } => item !== null && item.name !== '');
+      .filter((item): item is StockNameAndPriceEntry => item !== null && item.name !== '');
     
-    const uniqueStockNameObjects = Array.from(new Set(stockNameObjects.map(s => s.name))).map(name => ({ name }));
+    const uniqueStockEntriesMap = new Map<string, StockNameAndPriceEntry>();
+    stockEntries.forEach(entry => {
+        if (!uniqueStockEntriesMap.has(entry.name)) {
+            uniqueStockEntriesMap.set(entry.name, entry);
+        }
+    });
+    const uniqueStockEntries = Array.from(uniqueStockEntriesMap.values());
 
-    await writeCsvFile(STOCK_NAMES_CSV_PATH, uniqueStockNameObjects, STOCK_NAMES_HEADERS, stringifyStockNameEntry);
-    console.log(`Stock_Name.csv updated successfully with ${uniqueStockNameObjects.length} unique names.`);
+    await writeCsvFile(STOCK_NAMES_CSV_PATH, uniqueStockEntries, STOCK_NAMES_HEADERS, stringifyStockNameAndPriceEntry);
+    console.log(`Stock_Name.csv updated successfully with ${uniqueStockEntries.length} unique stock names and prices.`);
 
   } catch (error) {
-    console.error("Error in updateStockNamesCsvIfNeeded:", error);
+    console.error("Error in updateStockNamesAndPricesCsv:", error);
   }
-}
-
-
-async function getParsedGoogleSheetData(): Promise<Array<Record<string, string>>> {
-  const csvText = await fetchGoogleSheetCsvData();
-  if (!csvText) {
-    // console.warn("No CSV text fetched from Google Sheet for getParsedGoogleSheetData.");
-    return [];
-  }
-
-  const lines = csvText.trim().split(/\r?\n/);
-  if (lines.length < 2) {
-    // console.warn("CSV data from Google Sheet is empty or contains only headers for getParsedGoogleSheetData.");
-    return [];
-  }
-
-  const headers = lines[0].split(',').map(h => h.trim());
-  const data = lines.slice(1).map(line => {
-    const values = line.split(',');
-    const entry: Record<string, string> = {};
-    headers.forEach((header, index) => {
-      entry[header] = values[index]?.trim() || '';
-    });
-    return entry;
-  }).filter(entry => Object.values(entry).some(val => val !== ''));
-
-  if (data.length === 0) {
-    // console.warn("No valid data rows found after parsing Google Sheet CSV for getParsedGoogleSheetData.");
-  }
-  return data;
 }
 
 
@@ -230,10 +222,10 @@ export async function addStockPurchase(prevState: any, formData: FormData) {
 
   const data = validatedFields.data;
   await ensureDataDirExists();
-  await updateStockNamesCsvIfNeeded(); // Ensure local stock names CSV is up-to-date
+  await updateStockNamesAndPricesCsv(); // Ensure local stock names & prices CSV is up-to-date
 
-  const localStockNameEntries = await readCsvFile(STOCK_NAMES_CSV_PATH, STOCK_NAMES_HEADERS, parseStockNameEntry);
-  const validStockNamesFromCsv = localStockNameEntries.map(entry => entry.name);
+  const localStockEntries = await readCsvFile(STOCK_NAMES_CSV_PATH, STOCK_NAMES_HEADERS, parseStockNameAndPriceEntry);
+  const validStockNamesFromCsv = localStockEntries.map(entry => entry.name);
   
   if (validStockNamesFromCsv.length === 0) {
      return {
@@ -270,39 +262,27 @@ export async function addStockPurchase(prevState: any, formData: FormData) {
 
 export async function getPortfolioWithDetails(): Promise<PortfolioItem[]> {
   await ensureDataDirExists();
+  // Ensure local CSV with names and prices is updated from Google Sheet
+  await updateStockNamesAndPricesCsv(); 
+
   const portfolio = await readCsvFile<StockPurchase>(ACTIVE_STOCK_CSV_PATH, ACTIVE_STOCK_HEADERS, parseStockPurchase);
+  // Read current prices from the local Stock_Name.csv
+  const stockNameAndPriceEntries = await readCsvFile(STOCK_NAMES_CSV_PATH, STOCK_NAMES_HEADERS, parseStockNameAndPriceEntry);
 
-  // For current prices, we still fetch directly from Google Sheet to ensure they are fresh.
-  const googleSheetStocks = await getParsedGoogleSheetData();
   const stockPriceMap = new Map<string, number>();
-
-  if (googleSheetStocks.length > 0) {
-    googleSheetStocks.forEach(stockData => {
-      const name = stockData['name'];
-      const priceStr = stockData['Current_Price'];
-      if (name && priceStr) {
-        const price = parseFloat(priceStr);
-        if (!isNaN(price)) {
-          stockPriceMap.set(name, price);
-        } else {
-          // console.warn(`Could not parse price for ${name}: ${priceStr}. Using 0.`);
-          stockPriceMap.set(name, 0);
-        }
-      } else if (name) {
-        //  console.warn(`Current_Price not found for ${name} in Google Sheet. Using 0.`);
-         stockPriceMap.set(name, 0);
-      }
+  if (stockNameAndPriceEntries.length > 0) {
+    stockNameAndPriceEntries.forEach(entry => {
+      stockPriceMap.set(entry.name, entry.currentPrice);
     });
   } else {
-      // console.warn("No data fetched from Google Sheet for current prices. Current prices will be 0 for all stocks.");
+    console.warn("No data loaded from local Stock_Name.csv for current prices. Current prices might be 0 for all stocks.");
   }
-
 
   const detailedPortfolio: PortfolioItem[] = [];
   let totalPortfolioValue = 0;
 
   for (const stock of portfolio) {
-    const currentPrice = stockPriceMap.get(stock.name) || 0;
+    const currentPrice = stockPriceMap.get(stock.name) || 0; // Get price from local CSV cache
     const currentValue = currentPrice * stock.quantity;
     const buyValue = stock.buyPrice * stock.quantity;
     const gainLoss = currentValue - buyValue;
@@ -404,17 +384,16 @@ export async function getClosedPositions(): Promise<ClosedPosition[]> {
 export async function getStockSuggestions(query: string): Promise<string[]> {
   if (!query) return [];
   await ensureDataDirExists();
-  await updateStockNamesCsvIfNeeded(); // Ensure local stock names CSV is up-to-date
+  await updateStockNamesAndPricesCsv(); // Ensure local stock names & prices CSV is up-to-date
 
-  const nameEntries = await readCsvFile(STOCK_NAMES_CSV_PATH, STOCK_NAMES_HEADERS, parseStockNameEntry);
+  const nameAndPriceEntries = await readCsvFile(STOCK_NAMES_CSV_PATH, STOCK_NAMES_HEADERS, parseStockNameAndPriceEntry);
   
-  if (nameEntries.length === 0) {
-    // console.warn("No stock data from local Stock_Name.csv to provide suggestions.");
+  if (nameAndPriceEntries.length === 0) {
     return [];
   }
 
-  const suggestions: string[] = nameEntries
-    .map(entry => entry.name)
+  const suggestions: string[] = nameAndPriceEntries
+    .map(entry => entry.name) // Suggest only names
     .filter((name): name is string =>
       !!name && name.toLowerCase().includes(query.toLowerCase())
     );
