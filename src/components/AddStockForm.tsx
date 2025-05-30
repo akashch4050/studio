@@ -1,7 +1,8 @@
+
 "use client";
 
-import { useEffect, useState, useCallback } from 'react';
-import { useFormState, useFormStatus } from 'react-dom';
+import { useEffect, useState, useCallback, useActionState } from 'react';
+import { useFormStatus } from 'react-dom';
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -40,8 +41,8 @@ function SubmitButton() {
 
 export function AddStockForm() {
   const { toast } = useToast();
-  const [initialState, setInitialState] = useState({ message: null, errors: {} });
-  const [state, formAction] = useFormState(addStockPurchase, initialState);
+  const [initialState, setInitialState] = useState<{ message: string | null; errors: any }>({ message: null, errors: {} });
+  const [state, formAction] = useActionState(addStockPurchase, initialState);
   
   const [suggestions, setSuggestions] = useState<StockSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
