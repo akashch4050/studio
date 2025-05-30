@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useState, useCallback, useActionState } from 'react';
+import { useEffect, useState, useCallback, useActionState, startTransition } from 'react';
 import { useFormStatus } from 'react-dom';
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -58,22 +58,23 @@ export function AddStockForm() {
     },
   });
 
-  const watchedStockName = form.watch("name");
-
   useEffect(() => {
     if (form.getValues('buyDate') === undefined) {
       form.setValue("buyDate", new Date(), {
         shouldValidate: false, 
-        shouldDirty: false 
+        shouldDirty: true // Mark as dirty so it's included in submission if unchanged by user
       });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [form.setValue, form.getValues]);
+
+
+  const watchedStockName = form.watch("name");
 
   const fetchSuggestions = useCallback(async (query: string) => {
     const result = await getStockSuggestions(query);
     setSuggestions(result);
-    setShowSuggestions(result.length > 0); // Show suggestions only if there are any
+    setShowSuggestions(result.length > 0);
   }, []);
 
   useEffect(() => {
@@ -102,13 +103,12 @@ export function AddStockForm() {
         quantity: undefined,
       });
       setInitialState({ message: null, errors: {} }); 
-    } else if (state?.message && state?.errors) { 
+    } else if (state?.message || state?.errors && Object.keys(state.errors).length > 0) { 
        toast({
         title: "Error",
         description: state.message || "Please check the form for errors.",
         variant: "destructive",
       });
-       // Update form errors from server state
        Object.keys(state.errors || {}).forEach(key => {
         const fieldKey = key as keyof AddStockFormValues;
         const errorMessages = state.errors?.[fieldKey];
@@ -118,7 +118,7 @@ export function AddStockForm() {
       });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, toast, form.reset, form.setError]);
+  }, [state, toast]);
 
 
   const handleSuggestionClick = (suggestion: StockSuggestion) => {
@@ -136,11 +136,13 @@ export function AddStockForm() {
         formData.append('buyDate', format(new Date(), "yyyy-MM-dd"));
     }
     formData.append('buyPrice', data.buyPrice.toString());
-    if (data.targetPrice !== '' && data.targetPrice !== undefined) { // Check for empty string from optional coerce
+    if (data.targetPrice !== '' && data.targetPrice !== undefined) {
       formData.append('targetPrice', data.targetPrice.toString());
     }
     formData.append('quantity', data.quantity.toString());
-    formAction(formData);
+    startTransition(() => {
+      formAction(formData);
+    });
   };
 
   return (
@@ -159,7 +161,7 @@ export function AddStockForm() {
                 fetchSuggestions(currentName);
               }
             }}
-            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)} // Delay to allow click on suggestion
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
             className={cn("pl-10", form.formState.errors.name || state?.errors?.name ? "border-destructive" : "")}
             autoComplete="off"
           />
@@ -178,7 +180,6 @@ export function AddStockForm() {
           </ul>
         )}
         {form.formState.errors.name && <p className="text-sm text-destructive">{form.formState.errors.name.message}</p>}
-        {/* Server-side error for name, if not already handled by form.setError */}
         {!form.formState.errors.name && state?.errors?.name && <p className="text-sm text-destructive">{state.errors.name[0]}</p>}
       </div>
 
@@ -224,7 +225,8 @@ export function AddStockForm() {
             className={form.formState.errors.buyPrice || state?.errors?.buyPrice ? "border-destructive" : ""}
           />
           {form.formState.errors.buyPrice && <p className="text-sm text-destructive">{form.formState.errors.buyPrice.message}</p>}
-          {state?.errors?.buyPrice && <p className="text-sm text-destructive">{state.errors.buyPrice[0]}</p>}
+          {state?.errors?.buyPrice && <p className
+="text-sm text-destructive">{state.errors.buyPrice[0]}</p>}
         </div>
 
         <div className="space-y-2">
@@ -256,9 +258,11 @@ export function AddStockForm() {
         {state?.errors?.targetPrice && <p className="text-sm text-destructive">{state.errors.targetPrice[0]}</p>}
       </div>
       
-      {state?.message && !state.message.startsWith('Added') && !state.errors?.name && <p className="text-sm text-destructive text-center">{state.message}</p>}
+      {state?.message && !state.message.startsWith('Added') && (!state.errors || Object.keys(state.errors).length === 0) && <p className="text-sm text-destructive text-center">{state.message}</p>}
 
       <SubmitButton />
     </form>
   );
 }
+
+    

@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useActionState, useEffect } from 'react'; // Added useEffect
+import React, { useState, useActionState, useEffect, startTransition } from 'react';
 import { useFormStatus } from 'react-dom';
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -34,7 +34,7 @@ interface SellStockDialogProps {
 
 const SellStockFormSchema = z.object({
   stockId: z.string(),
-  sellDate: z.date({ required_error: "Sell date is required." }).optional(), // Optional to allow undefined initial state
+  sellDate: z.date({ required_error: "Sell date is required." }).optional(),
   sellPrice: z.coerce.number().positive("Sell price must be positive."),
 });
 
@@ -53,101 +53,76 @@ function SubmitButton() {
 export function SellStockDialog({ stock }: SellStockDialogProps) {
   const [open, setOpen] = useState(false);
   const { toast } = useToast();
+  const [initialState, setInitialState] = useState<{ message: string | null; errors?: { [key: string]: string[] | undefined } | null }>({ message: null, errors: {} });
+  const [state, formAction] = useActionState(recordSale, initialState);
+
 
   const form = useForm<SellStockFormValues>({
     resolver: zodResolver(SellStockFormSchema),
     defaultValues: {
       stockId: stock.id,
-      sellDate: undefined, // Initialize as undefined
+      sellDate: undefined, 
       sellPrice: stock.currentPrice || undefined,
     },
   });
   
   useEffect(() => {
-    // Set default date on client-side after hydration
-    if (form.getValues('sellDate') === undefined) {
-        form.setValue("sellDate", new Date(), {
-            shouldValidate: false,
-            shouldDirty: false
-        });
-    }
-    // Reset sellPrice when dialog is opened or stock changes, to reflect current market price as default
-    // This ensures that if the user reopens the dialog for the same stock or a different stock,
-    // the sellPrice field defaults to the latest currentPrice.
-    // We need to be careful if this runs too often, e.g., on every render.
-    // This should ideally run when `stock.currentPrice` changes or `open` becomes true.
     if (open) {
-        form.setValue("sellPrice", stock.currentPrice || undefined, {
-            shouldValidate: false, // Or true if you want to validate the new default
-            shouldDirty: false 
+        form.reset({ // Reset form when dialog opens or stock details change
+            stockId: stock.id,
+            sellDate: new Date(), // Default to today
+            sellPrice: stock.currentPrice || undefined,
         });
+        // Clear previous server action state as well
+        setInitialState({ message: null, errors: {} });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, stock.currentPrice, form.setValue, form.getValues]); // Rerun if dialog opens or current price changes
+  }, [open, stock.id, stock.currentPrice, form.reset]);
 
-
-  const [state, formAction] = useActionState(recordSale, { message: null, errors: {} });
 
   const onSubmit = (data: SellStockFormValues) => {
     const formData = new FormData();
     formData.append('stockId', data.stockId);
-    if (data.sellDate) { // Ensure sellDate is not undefined
+    if (data.sellDate) {
         formData.append('sellDate', format(data.sellDate, "yyyy-MM-dd"));
     } else {
-        // Fallback or error if sellDate is still undefined
         formData.append('sellDate', format(new Date(), "yyyy-MM-dd"));
     }
     formData.append('sellPrice', data.sellPrice.toString());
     
-    formAction(formData);
+    startTransition(() => {
+      formAction(formData);
+    });
   };
   
-  React.useEffect(() => {
+  useEffect(() => {
     if (state?.message?.startsWith('Sold')) {
       toast({
         title: "Success",
         description: state.message,
       });
       setOpen(false);
-      form.reset({ 
-          stockId: stock.id, 
-          sellDate: new Date(), // Client-side new Date for reset is fine
-          sellPrice: stock.currentPrice || undefined,
-      });
-    } else if (state?.message) { 
+      // Form is reset by the 'open' useEffect when dialog reopens
+    } else if (state?.message || (state?.errors && Object.keys(state.errors).length > 0)) { 
        toast({
         title: "Error",
-        description: state.message,
+        description: state.message || "Failed to record sale. Please check the details.",
         variant: "destructive",
       });
-    }
-    if (state?.errors) {
-      console.error("Validation errors:", state.errors);
+      Object.keys(state.errors || {}).forEach(key => {
+        const fieldKey = key as keyof SellStockFormValues;
+        const errorMessages = state.errors?.[fieldKey];
+        if (errorMessages && errorMessages.length > 0) {
+          form.setError(fieldKey, { type: 'server', message: errorMessages[0] });
+        }
+      });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, toast, form, stock.id, stock.currentPrice]);
+  }, [state, toast]);
 
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => {
-        setOpen(isOpen);
-        if (!isOpen) { // When dialog closes, reset form to its initial default state or specific defaults
-            form.reset({
-                stockId: stock.id,
-                sellDate: new Date(), // Default to new Date() for next open
-                sellPrice: stock.currentPrice || undefined,
-            });
-        } else {
-            // When dialog opens, ensure date is set if it was undefined.
-            // The main useEffect with [open, stock.currentPrice] dependency also handles this.
-             if (form.getValues('sellDate') === undefined) {
-                form.setValue("sellDate", new Date(), {
-                    shouldValidate: false,
-                    shouldDirty: false
-                });
-            }
-        }
-    }}>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant="outline" className="w-full">Sell Stock</Button>
       </DialogTrigger>
@@ -181,14 +156,14 @@ export function SellStockDialog({ stock }: SellStockDialogProps) {
                 <Calendar
                   mode="single"
                   selected={form.watch("sellDate")}
-                  onSelect={(date) => form.setValue("sellDate", date || new Date())}
+                  onSelect={(date) => form.setValue("sellDate", date || new Date(), {shouldValidate: true})}
                   initialFocus
                   disabled={(date) => date > new Date() || date < new Date(stock.buyDate)}
                 />
               </PopoverContent>
             </Popover>
             {form.formState.errors.sellDate && <p className="text-sm text-destructive">{form.formState.errors.sellDate.message}</p>}
-            {state?.errors?.sellDate && <p className="text-sm text-destructive">{(state.errors.sellDate as string[])[0]}</p>}
+            {state?.errors?.sellDate && <p className="text-sm text-destructive">{state.errors.sellDate[0]}</p>}
           </div>
 
           <div className="space-y-2">
@@ -201,8 +176,9 @@ export function SellStockDialog({ stock }: SellStockDialogProps) {
               className={form.formState.errors.sellPrice || state?.errors?.sellPrice ? "border-destructive" : ""}
             />
             {form.formState.errors.sellPrice && <p className="text-sm text-destructive">{form.formState.errors.sellPrice.message}</p>}
-            {state?.errors?.sellPrice && <p className="text-sm text-destructive">{(state.errors.sellPrice as string[])[0]}</p>}
+            {state?.errors?.sellPrice && <p className="text-sm text-destructive">{state.errors.sellPrice[0]}</p>}
           </div>
+           {state?.message && !state.message.startsWith('Sold') && (!state.errors || Object.keys(state.errors).length === 0) && <p className="text-sm text-destructive text-center">{state.message}</p>}
           
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
@@ -213,3 +189,5 @@ export function SellStockDialog({ stock }: SellStockDialogProps) {
     </Dialog>
   );
 }
+
+    
