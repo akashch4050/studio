@@ -3,7 +3,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import { differenceInDays, formatISO } from 'date-fns';
+import { differenceInDays } from 'date-fns';
 import type { StockPurchase, ClosedPosition, StockSuggestion, PortfolioItem } from '@/lib/definitions';
 import fs from 'fs/promises';
 import path from 'path';
@@ -14,6 +14,7 @@ const CLOSED_POSITIONS_CSV_PATH = path.join(DATA_DIR, 'Closed_Positions.csv');
 
 const GOOGLE_SHEET_URL_PLACEHOLDER = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRMjtSRxkcX_Tmc_ru9O7xPxaymgKPDiy_tThfBwklQbDP6JjCDTxSN-OaXS6P6Dqits72O7k8GQKAz/pub?gid=0&single=true&output=csv";
 let fetchedGoogleSheetCsvData: string | null = null;
+let parsedGoogleSheetDataCache: Array<Record<string, string>> | null = null;
 
 const ACTIVE_STOCK_HEADERS = 'id,name,buyDate,buyPrice,targetPrice,quantity';
 const CLOSED_POSITION_HEADERS = 'id,name,buyDate,buyPrice,quantity,buyValue,sellDate,sellPrice,sellValue,gain,daysHeld,percentGain,annualizedGainPercent';
@@ -31,7 +32,11 @@ async function readCsvFile<T>(filePath: string, headers: string, parser: (row: s
     await fs.access(filePath);
     const fileContent = await fs.readFile(filePath, 'utf-8');
     const lines = fileContent.trim().split('\n');
-    if (lines.length <= 1 || lines[0].trim() !== headers) { // Check for headers or empty file after header
+    if (lines.length <= 1 || lines[0].trim() !== headers) {
+      // If headers don't match or only header exists, consider it empty or create with headers
+      if (lines.length === 0 || lines[0].trim() !== headers) {
+        await fs.writeFile(filePath, headers + '\n', 'utf-8');
+      }
       return [];
     }
     return lines.slice(1).map(line => {
@@ -39,17 +44,17 @@ async function readCsvFile<T>(filePath: string, headers: string, parser: (row: s
       return parser(values);
     }).filter((item): item is T => item !== null);
   } catch (error) {
-    // If file doesn't exist or other read error, return empty array
+    // If file does not exist, create it with headers
+    await fs.writeFile(filePath, headers + '\n', 'utf-8');
     return [];
   }
 }
 
 async function writeCsvFile<T>(filePath: string, data: T[], headers: string, stringifier: (item: T) => string): Promise<void> {
   const csvContent = [headers, ...data.map(stringifier)].join('\n');
-  await fs.writeFile(filePath, csvContent, 'utf-8');
+  await fs.writeFile(filePath, csvContent + '\n', 'utf-8');
 }
 
-// Parsers and Stringifiers
 const parseStockPurchase = (row: string[]): StockPurchase | null => {
   if (row.length < 6) return null;
   const [id, name, buyDate, buyPriceStr, targetPriceStr, quantityStr] = row;
@@ -93,20 +98,20 @@ const stringifyClosedPosition = (pos: ClosedPosition): string =>
     pos.percentGain.toString(), pos.annualizedGainPercent?.toString() || ''
   ].join(',');
 
-
 async function ensureGoogleSheetCsvDataFetched(): Promise<string> {
   if (fetchedGoogleSheetCsvData !== null) {
     return fetchedGoogleSheetCsvData;
   }
   try {
-    const response = await fetch(GOOGLE_SHEET_URL_PLACEHOLDER, { cache: 'no-store' });
+    const response = await fetch(GOOGLE_SHEET_URL_PLACEHOLDER, { cache: 'no-store', next: { revalidate: 300 } }); // Revalidate every 5 minutes
     if (!response.ok) {
       console.error(`Failed to fetch Google Sheet: ${response.status} ${response.statusText}`);
-      fetchedGoogleSheetCsvData = "";
+      fetchedGoogleSheetCsvData = ""; // Store empty string on failure to prevent retries for a short while
       return "";
     }
     const csvText = await response.text();
     fetchedGoogleSheetCsvData = csvText;
+    parsedGoogleSheetDataCache = null; 
     return fetchedGoogleSheetCsvData;
   } catch (error) {
     console.error("Error fetching or parsing Google Sheet data:", error);
@@ -114,6 +119,36 @@ async function ensureGoogleSheetCsvDataFetched(): Promise<string> {
     return "";
   }
 }
+
+async function getParsedGoogleSheetData(): Promise<Array<Record<string, string>>> {
+  if (parsedGoogleSheetDataCache) {
+    return parsedGoogleSheetDataCache;
+  }
+  const csvText = await ensureGoogleSheetCsvDataFetched();
+  if (!csvText) {
+    parsedGoogleSheetDataCache = [];
+    return [];
+  }
+
+  const lines = csvText.trim().split(/\r?\n/); // Handles both LF and CRLF line endings
+  if (lines.length < 2) { 
+    parsedGoogleSheetDataCache = [];
+    return [];
+  }
+
+  const headers = lines[0].split(',').map(h => h.trim());
+  const data = lines.slice(1).map(line => {
+    const values = line.split(',');
+    const entry: Record<string, string> = {};
+    headers.forEach((header, index) => {
+      entry[header] = values[index]?.trim() || '';
+    });
+    return entry;
+  });
+  parsedGoogleSheetDataCache = data;
+  return data;
+}
+
 
 const StockPurchaseSchema = z.object({
   name: z.string().min(1, "Stock name is required"),
@@ -136,33 +171,28 @@ export async function addStockPurchase(prevState: any, formData: FormData) {
   if (!validatedFields.success) {
     return {
       errors: validatedFields.error.flatten().fieldErrors,
-      message: 'Failed to add stock.',
+      message: 'Failed to add stock. Please check the form for errors.',
     };
   }
 
   const data = validatedFields.data;
+  const googleSheetStocks = await getParsedGoogleSheetData();
 
-  const csvData = await ensureGoogleSheetCsvDataFetched();
-  if (!csvData) {
-    return {
-      errors: { name: ["Could not load stock list from Google Sheet. Please try again later."] },
-      message: 'Failed to validate stock name due to data loading issue from Google Sheet.',
+  if (googleSheetStocks.length === 0) {
+     return {
+      errors: { name: ["Could not load stock list from Google Sheet. Please check sheet configuration or try again later."] },
+      message: 'Failed to validate stock name. Data loading issue from Google Sheet.',
     };
   }
-
-  const validStockNamesFromSheet = csvData
-    .split('\n')
-    .slice(1) 
-    .map(line => {
-      const [name] = line.split(',');
-      return name?.trim();
-    })
+  
+  const validStockNamesFromSheet = googleSheetStocks
+    .map(stockData => stockData['name']) 
     .filter((name): name is string => !!name);
 
   if (!validStockNamesFromSheet.includes(data.name)) {
     return {
       errors: { name: ["Please select a valid stock from the suggestions list. The stock name is not found in the linked Google Sheet."] },
-      message: 'Invalid stock name provided. It does not match any stock in the Google Sheet.',
+      message: 'Invalid stock name. It does not match any stock in the Google Sheet.',
     };
   }
   
@@ -185,23 +215,39 @@ export async function addStockPurchase(prevState: any, formData: FormData) {
   return { message: `Added ${data.name} to portfolio.` };
 }
 
-async function getMockCurrentPrice(stockName: string): Promise<number> {
-  await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300));
-  const basePrice = stockName.length * 10 + Math.random() * 50;
-  const fluctuation = (Math.random() - 0.5) * 20;
-  return Math.max(10, parseFloat((basePrice + fluctuation).toFixed(2)));
-}
-
 
 export async function getPortfolioWithDetails(): Promise<PortfolioItem[]> {
   await ensureDataDirExists();
   const portfolio = await readCsvFile<StockPurchase>(ACTIVE_STOCK_CSV_PATH, ACTIVE_STOCK_HEADERS, parseStockPurchase);
   
+  const googleSheetStocks = await getParsedGoogleSheetData();
+  const stockPriceMap = new Map<string, number>();
+  if (googleSheetStocks.length > 0) {
+    googleSheetStocks.forEach(stockData => {
+      const name = stockData['name']; 
+      const priceStr = stockData['Current_Price']; 
+      if (name && priceStr) {
+        const price = parseFloat(priceStr);
+        if (!isNaN(price)) {
+          stockPriceMap.set(name, price);
+        } else {
+          console.warn(`Could not parse price for ${name}: ${priceStr}. Using 0.`);
+          stockPriceMap.set(name, 0);
+        }
+      } else if (name) {
+        console.warn(`Current_Price not found for ${name}. Using 0.`);
+        stockPriceMap.set(name, 0);
+      }
+    });
+  } else {
+      console.warn("No data fetched from Google Sheet. Current prices will be 0.");
+  }
+  
   const detailedPortfolio: PortfolioItem[] = [];
   let totalPortfolioValue = 0;
 
   for (const stock of portfolio) {
-    const currentPrice = await getMockCurrentPrice(stock.name);
+    const currentPrice = stockPriceMap.get(stock.name) || 0; 
     const currentValue = currentPrice * stock.quantity;
     const buyValue = stock.buyPrice * stock.quantity;
     const gainLoss = currentValue - buyValue;
@@ -237,7 +283,7 @@ export async function recordSale(prevState: any, formData: FormData) {
   if (!validatedFields.success) {
     return {
       errors: validatedFields.error.flatten().fieldErrors,
-      message: 'Failed to record sale.',
+      message: 'Failed to record sale. Please check the form details.',
     };
   }
   
@@ -256,12 +302,15 @@ export async function recordSale(prevState: any, formData: FormData) {
   const sellValue = sellPrice * stockToSell.quantity;
   const gain = sellValue - buyValue;
   const daysHeld = differenceInDays(new Date(sellDate), new Date(stockToSell.buyDate));
-  const percentGain = buyValue > 0 ? (gain / buyValue) * 100 : (sellValue > 0 ? Infinity : 0);
+  const percentGain = buyValue > 0 ? (gain / buyValue) * 100 : (sellValue > 0 ? Infinity : 0); // Handle 0 buyValue
   
   let annualizedGainPercent: number | undefined = undefined;
   if (daysHeld > 0 && buyValue > 0) {
     annualizedGainPercent = (percentGain / daysHeld) * 365;
+  } else if (daysHeld === 0 && buyValue > 0 && percentGain !== 0) { // Same day sale with gain/loss
+    annualizedGainPercent = percentGain * 365; // Simplistic annualization for same-day
   }
+
 
   const closedPosition: ClosedPosition = {
     id: stockToSell.id,
@@ -294,26 +343,34 @@ export async function recordSale(prevState: any, formData: FormData) {
 export async function getClosedPositions(): Promise<ClosedPosition[]> {
   await ensureDataDirExists();
   const closedPositions = await readCsvFile<ClosedPosition>(CLOSED_POSITIONS_CSV_PATH, CLOSED_POSITION_HEADERS, parseClosedPosition);
+  // Sort by sellDate descending
   return [...closedPositions].sort((a,b) => new Date(b.sellDate).getTime() - new Date(a.sellDate).getTime());
 }
 
 export async function getStockSuggestions(query: string): Promise<StockSuggestion[]> {
   if (!query) return [];
   
-  const csvData = await ensureGoogleSheetCsvDataFetched();
-  if (!csvData) {
-    console.error("Could not fetch stock suggestions from Google Sheet.");
+  const googleSheetStocks = await getParsedGoogleSheetData();
+  if (googleSheetStocks.length === 0) {
+    console.warn("Could not fetch stock suggestions from Google Sheet or sheet is empty.");
     return [];
   }
   
-  const suggestions: StockSuggestion[] = csvData
-    .split('\n')
-    .slice(1)
-    .map(line => {
-      const [name, symbol] = line.split(',');
-      return { name: name?.trim(), symbol: symbol?.trim() };
+  const suggestions: StockSuggestion[] = googleSheetStocks
+    .map(stockData => {
+      const name = stockData['name']; 
+      const symbol = stockData['symbol']; 
+      if (name && symbol) {
+        return { name, symbol };
+      }
+      return null;
     })
-    .filter((stock): stock is StockSuggestion => !!(stock.name && stock.symbol && stock.name.toLowerCase().includes(query.toLowerCase())));
+    .filter((stock): stock is StockSuggestion => 
+      !!(stock && stock.name && stock.symbol && stock.name.toLowerCase().includes(query.toLowerCase()))
+    );
     
-  return suggestions.slice(0, 10);
+  return suggestions.slice(0, 10); // Return top 10 matches
 }
+
+
+    
