@@ -21,10 +21,10 @@ import { useToast } from "@/hooks/use-toast";
 
 const AddStockFormSchema = z.object({
   name: z.string().min(1, "Stock name is required"),
-  buyDate: z.date({ required_error: "Buy date is required."}),
-  buyPrice: z.coerce.number().positive("Buy price must be a positive number"),
+  buyDate: z.date({ required_error: "Buy date is required."}).optional(), // Optional to allow undefined initial state
   targetPrice: z.coerce.number().positive("Target price must be positive").optional().or(z.literal('')),
   quantity: z.coerce.number().int().positive("Quantity must be a positive integer"),
+  buyPrice: z.coerce.number().positive("Buy price must be a positive number"),
 });
 
 type AddStockFormValues = z.infer<typeof AddStockFormSchema>;
@@ -52,12 +52,23 @@ export function AddStockForm() {
     resolver: zodResolver(AddStockFormSchema),
     defaultValues: {
       name: "",
-      buyDate: new Date(),
+      buyDate: undefined, // Initialize as undefined
       buyPrice: undefined,
       targetPrice: undefined,
       quantity: undefined,
     },
   });
+
+  useEffect(() => {
+    // Set default date on client-side after hydration to avoid mismatch
+    if (form.getValues('buyDate') === undefined) {
+      form.setValue("buyDate", new Date(), {
+        shouldValidate: false, 
+        shouldDirty: false 
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Runs once after initial client render
 
   const fetchSuggestions = useCallback(async (query: string) => {
     if (query.length > 1) {
@@ -88,10 +99,16 @@ export function AddStockForm() {
         title: "Success!",
         description: state.message,
       });
-      form.reset();
-      setStockNameQuery(""); // Reset stock name query
-      setInitialState({ message: null, errors: {} }); // Reset form state for next submission
-    } else if (state?.message && state?.errors) { // Check if there are errors in the state
+      form.reset({ // Reset with new defaults, including client-side new Date()
+        name: "",
+        buyDate: new Date(),
+        buyPrice: undefined,
+        targetPrice: undefined,
+        quantity: undefined,
+      });
+      setStockNameQuery(""); 
+      setInitialState({ message: null, errors: {} }); 
+    } else if (state?.message && state?.errors) { 
        toast({
         title: "Error",
         description: "Please check the form for errors.",
@@ -117,7 +134,13 @@ export function AddStockForm() {
   const handleSubmit = (data: AddStockFormValues) => {
     const formData = new FormData();
     formData.append('name', data.name);
-    formData.append('buyDate', format(data.buyDate, "yyyy-MM-dd"));
+    if (data.buyDate) { // Ensure buyDate is not undefined
+        formData.append('buyDate', format(data.buyDate, "yyyy-MM-dd"));
+    } else {
+        // Handle case where buyDate might still be undefined, though unlikely with useEffect
+        // Or ensure schema makes it required before submission logic
+        formData.append('buyDate', format(new Date(), "yyyy-MM-dd")); // Fallback, or handle error
+    }
     formData.append('buyPrice', data.buyPrice.toString());
     if (data.targetPrice) {
       formData.append('targetPrice', data.targetPrice.toString());
@@ -139,8 +162,8 @@ export function AddStockForm() {
             {...form.register("name")}
             value={stockNameQuery}
             onChange={handleStockNameChange}
-            onFocus={() => stockNameQuery && fetchSuggestions(stockNameQuery)} // Show suggestions on focus if query exists
-            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)} // Delay to allow click
+            onFocus={() => stockNameQuery && fetchSuggestions(stockNameQuery)}
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
             className={cn("pl-10", form.formState.errors.name || state?.errors?.name ? "border-destructive" : "")}
             autoComplete="off"
           />
@@ -175,7 +198,7 @@ export function AddStockForm() {
               )}
             >
               <CalendarIcon className="mr-2 h-4 w-4" />
-              {form.watch("buyDate") ? format(form.watch("buyDate"), "PPP") : <span>Pick a date</span>}
+              {form.watch("buyDate") ? format(form.watch("buyDate") as Date, "PPP") : <span>Pick a date</span>}
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-auto p-0">

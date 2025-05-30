@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useActionState } from 'react';
+import React, { useState, useActionState, useEffect } from 'react'; // Added useEffect
 import { useFormStatus } from 'react-dom';
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -34,7 +34,7 @@ interface SellStockDialogProps {
 
 const SellStockFormSchema = z.object({
   stockId: z.string(),
-  sellDate: z.date({ required_error: "Sell date is required." }),
+  sellDate: z.date({ required_error: "Sell date is required." }).optional(), // Optional to allow undefined initial state
   sellPrice: z.coerce.number().positive("Sell price must be positive."),
 });
 
@@ -58,90 +58,50 @@ export function SellStockDialog({ stock }: SellStockDialogProps) {
     resolver: zodResolver(SellStockFormSchema),
     defaultValues: {
       stockId: stock.id,
-      sellDate: new Date(),
+      sellDate: undefined, // Initialize as undefined
       sellPrice: stock.currentPrice || undefined,
     },
   });
   
+  useEffect(() => {
+    // Set default date on client-side after hydration
+    if (form.getValues('sellDate') === undefined) {
+        form.setValue("sellDate", new Date(), {
+            shouldValidate: false,
+            shouldDirty: false
+        });
+    }
+    // Reset sellPrice when dialog is opened or stock changes, to reflect current market price as default
+    // This ensures that if the user reopens the dialog for the same stock or a different stock,
+    // the sellPrice field defaults to the latest currentPrice.
+    // We need to be careful if this runs too often, e.g., on every render.
+    // This should ideally run when `stock.currentPrice` changes or `open` becomes true.
+    if (open) {
+        form.setValue("sellPrice", stock.currentPrice || undefined, {
+            shouldValidate: false, // Or true if you want to validate the new default
+            shouldDirty: false 
+        });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, stock.currentPrice, form.setValue, form.getValues]); // Rerun if dialog opens or current price changes
+
+
   const [state, formAction] = useActionState(recordSale, { message: null, errors: {} });
 
-  const onSubmit = async (data: SellStockFormValues) => {
+  const onSubmit = (data: SellStockFormValues) => {
     const formData = new FormData();
     formData.append('stockId', data.stockId);
-    formData.append('sellDate', format(data.sellDate, "yyyy-MM-dd"));
+    if (data.sellDate) { // Ensure sellDate is not undefined
+        formData.append('sellDate', format(data.sellDate, "yyyy-MM-dd"));
+    } else {
+        // Fallback or error if sellDate is still undefined
+        formData.append('sellDate', format(new Date(), "yyyy-MM-dd"));
+    }
     formData.append('sellPrice', data.sellPrice.toString());
     
-    // Directly pass the previous state and formData to the action.
-    // useActionState handles the state update internally.
-    // We're calling the action `formAction` bound by `useActionState`.
-    // However, since we are manually calling it inside an `onSubmit` handler
-    // provided by `react-hook-form`, we need to call the original server action `recordSale`
-    // and then process its result. The `formAction` returned by `useActionState` is meant
-    // to be directly used in the `action` prop of a `<form>`.
-
-    // To correctly use useActionState with react-hook-form's handleSubmit,
-    // we should pass the `formAction` (which is the server action wrapped by useActionState)
-    // directly to the <form action={formAction}>.
-    // However, react-hook-form's `handleSubmit` expects a client-side function.
-    // A common pattern is to let react-hook-form handle client-side validation
-    // and then call the server action (or the `formAction` from `useActionState`) programmatically.
-
-    // Let's simplify and ensure it works correctly with the formAction from useActionState
-    // We can trigger the formAction, and then react to the `state` change in an effect.
-    // However, the original code was calling `recordSale` directly.
-    // To keep the structure similar while correctly using `useActionState`, the `formAction` itself
-    // should be called. The `state` will then update, and effects can react to it.
-    
-    // The issue here is that `formAction` expects `FormData` as the second argument if no previous state is passed.
-    // When `useActionState` wraps a server action, the returned `formAction` can be used directly in a form.
-    // If calling programmatically, we provide the form data.
-    
-    // The original call was `recordSale(state, formData)` which is incorrect for the `formAction` from `useActionState`
-    // The `formAction` itself takes the FormData (or other payload).
-    
-    // Let's assume `formAction` from `useActionState` is what we should call.
-    // It implicitly uses the `initialState` or the last `state`.
-    // The first argument to `formAction` should be the payload, typically FormData.
-    
-    // Re-evaluating: The `formAction` returned by `useActionState` is indeed what should be called
-    // with the form data. The `state` will be updated automatically by React.
-    
-    // The `formAction` function, when called, will invoke `recordSale` with the previous state and the new FormData.
-    // The `recordSale` action needs to be adapted to handle the previous state argument correctly if it's
-    // being managed by `useActionState`. The current `recordSale` signature `(prevState: any, formData: FormData)` is correct.
-
-    // So, we should call `formAction(formData)` here.
-    // The `state` will update, and the useEffect below (if it existed) would handle the toast.
-    // Let's adapt the existing `onSubmit` to call `formAction` and then handle the result directly
-    // from the `state` variable in an effect, or check the result if `formAction` returns it.
-    // `useActionState`'s `formAction` does not directly return the server action's result when called.
-    // The result is available in the `state` variable.
-    
-    // We'll keep the original logic of calling `recordSale` directly and then processing its result,
-    // because `formAction` usage here might be tricky with `react-hook-form`'s `handleSubmit`.
-    // The key fix is the import and usage of `useActionState` itself.
-    // The toast logic relies on the `state` variable that `useActionState` updates.
-
-    const boundAction = (fd: FormData) => {
-      // This is a bit of a workaround to fit react-hook-form's handleSubmit
-      // with the formAction from useActionState.
-      // We want react-hook-form to call this, which in turn calls the action from useActionState.
-      // And then we want to react to the `state` change.
-      // The current structure where `onSubmit` calls `recordSale` directly and then
-      // `useActionState` is *also* used for `recordSale` might lead to `state` not being the one
-      // from *this specific* programmatic call if not handled carefully.
-      
-      // The simplest way is to rely on the `state` updated by `formAction` in an effect.
-      // Let's modify the `onSubmit` to call `formAction` (the wrapped action).
-      // The toast logic already depends on `state`.
-      
-      formAction(formData); // This will trigger `recordSale` and update `state`.
-    };
-    
-    boundAction(formData); // Call the form action. The useEffect will handle toasts.
+    formAction(formData);
   };
   
-  // useEffect to handle toast messages based on `state` changes from `useActionState`
   React.useEffect(() => {
     if (state?.message?.startsWith('Sold')) {
       toast({
@@ -149,12 +109,12 @@ export function SellStockDialog({ stock }: SellStockDialogProps) {
         description: state.message,
       });
       setOpen(false);
-      form.reset({ // Reset with default values or specific values if needed
-          stockId: stock.id, // Keep stockId
-          sellDate: new Date(),
+      form.reset({ 
+          stockId: stock.id, 
+          sellDate: new Date(), // Client-side new Date for reset is fine
           sellPrice: stock.currentPrice || undefined,
       });
-    } else if (state?.message) { // This covers error messages from the action
+    } else if (state?.message) { 
        toast({
         title: "Error",
         description: state.message,
@@ -163,17 +123,31 @@ export function SellStockDialog({ stock }: SellStockDialogProps) {
     }
     if (state?.errors) {
       console.error("Validation errors:", state.errors);
-      // Optionally set form errors if they are field-specific
-      // Object.entries(state.errors).forEach(([key, value]) => {
-      //   form.setError(key as keyof SellStockFormValues, { type: 'server', message: (value as string[])[0] });
-      // });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, toast, form, stock.id, stock.currentPrice]); // Add dependencies that form.reset might need
+  }, [state, toast, form, stock.id, stock.currentPrice]);
 
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(isOpen) => {
+        setOpen(isOpen);
+        if (!isOpen) { // When dialog closes, reset form to its initial default state or specific defaults
+            form.reset({
+                stockId: stock.id,
+                sellDate: new Date(), // Default to new Date() for next open
+                sellPrice: stock.currentPrice || undefined,
+            });
+        } else {
+            // When dialog opens, ensure date is set if it was undefined.
+            // The main useEffect with [open, stock.currentPrice] dependency also handles this.
+             if (form.getValues('sellDate') === undefined) {
+                form.setValue("sellDate", new Date(), {
+                    shouldValidate: false,
+                    shouldDirty: false
+                });
+            }
+        }
+    }}>
       <DialogTrigger asChild>
         <Button variant="outline" className="w-full">Sell Stock</Button>
       </DialogTrigger>
@@ -184,11 +158,6 @@ export function SellStockDialog({ stock }: SellStockDialogProps) {
             Record the sale of {stock.quantity} shares of {stock.name}. Current price: ${stock.currentPrice.toFixed(2)}.
           </DialogDescription>
         </DialogHeader>
-        {/*
-          To correctly use useActionState, the form should directly use the `formAction`.
-          However, react-hook-form's `handleSubmit` is used for client-side validation.
-          The programmatic call to `formAction` inside `onSubmit` is one way to integrate.
-        */}
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <input type="hidden" {...form.register("stockId")} />
           
@@ -205,7 +174,7 @@ export function SellStockDialog({ stock }: SellStockDialogProps) {
                   )}
                 >
                   <CalendarIcon className="mr-2 h-4 w-4" />
-                  {form.watch("sellDate") ? format(form.watch("sellDate"), "PPP") : <span>Pick a date</span>}
+                  {form.watch("sellDate") ? format(form.watch("sellDate") as Date, "PPP") : <span>Pick a date</span>}
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0">
@@ -235,9 +204,6 @@ export function SellStockDialog({ stock }: SellStockDialogProps) {
             {state?.errors?.sellPrice && <p className="text-sm text-destructive">{(state.errors.sellPrice as string[])[0]}</p>}
           </div>
           
-          {/* This general error message might be redundant if useEffect handles it via toast */}
-          {/* state?.message && !state.message.startsWith('Sold') && <p className="text-sm text-destructive">{state.message}</p> */}
-
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
             <SubmitButton />
