@@ -4,7 +4,7 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { differenceInDays } from 'date-fns';
-import type { StockPurchase, ClosedPosition, StockSuggestion, PortfolioItem } from '@/lib/definitions';
+import type { StockPurchase, ClosedPosition, PortfolioItem } from '@/lib/definitions';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -111,7 +111,7 @@ async function ensureGoogleSheetCsvDataFetched(): Promise<string> {
     }
     const csvText = await response.text();
     fetchedGoogleSheetCsvData = csvText;
-    parsedGoogleSheetDataCache = null; 
+    parsedGoogleSheetDataCache = null;
     return fetchedGoogleSheetCsvData;
   } catch (error) {
     console.error("Error fetching or parsing Google Sheet data:", error);
@@ -131,7 +131,7 @@ async function getParsedGoogleSheetData(): Promise<Array<Record<string, string>>
   }
 
   const lines = csvText.trim().split(/\r?\n/); // Handles both LF and CRLF line endings
-  if (lines.length < 2) { 
+  if (lines.length < 2) {
     parsedGoogleSheetDataCache = [];
     return [];
   }
@@ -184,9 +184,9 @@ export async function addStockPurchase(prevState: any, formData: FormData) {
       message: 'Failed to validate stock name. Data loading issue from Google Sheet.',
     };
   }
-  
+
   const validStockNamesFromSheet = googleSheetStocks
-    .map(stockData => stockData['name']) 
+    .map(stockData => stockData['name'])
     .filter((name): name is string => !!name);
 
   if (!validStockNamesFromSheet.includes(data.name)) {
@@ -195,7 +195,7 @@ export async function addStockPurchase(prevState: any, formData: FormData) {
       message: 'Invalid stock name. It does not match any stock in the Google Sheet.',
     };
   }
-  
+
   await ensureDataDirExists();
   const portfolio = await readCsvFile<StockPurchase>(ACTIVE_STOCK_CSV_PATH, ACTIVE_STOCK_HEADERS, parseStockPurchase);
 
@@ -209,7 +209,7 @@ export async function addStockPurchase(prevState: any, formData: FormData) {
   };
   portfolio.push(newStock);
   await writeCsvFile<StockPurchase>(ACTIVE_STOCK_CSV_PATH, portfolio, ACTIVE_STOCK_HEADERS, stringifyStockPurchase);
-  
+
   revalidatePath('/');
   revalidatePath('/add-stock');
   return { message: `Added ${data.name} to portfolio.` };
@@ -219,13 +219,13 @@ export async function addStockPurchase(prevState: any, formData: FormData) {
 export async function getPortfolioWithDetails(): Promise<PortfolioItem[]> {
   await ensureDataDirExists();
   const portfolio = await readCsvFile<StockPurchase>(ACTIVE_STOCK_CSV_PATH, ACTIVE_STOCK_HEADERS, parseStockPurchase);
-  
+
   const googleSheetStocks = await getParsedGoogleSheetData();
   const stockPriceMap = new Map<string, number>();
   if (googleSheetStocks.length > 0) {
     googleSheetStocks.forEach(stockData => {
-      const name = stockData['name']; 
-      const priceStr = stockData['Current_Price']; 
+      const name = stockData['name'];
+      const priceStr = stockData['Current_Price'];
       if (name && priceStr) {
         const price = parseFloat(priceStr);
         if (!isNaN(price)) {
@@ -242,18 +242,18 @@ export async function getPortfolioWithDetails(): Promise<PortfolioItem[]> {
   } else {
       console.warn("No data fetched from Google Sheet. Current prices will be 0.");
   }
-  
+
   const detailedPortfolio: PortfolioItem[] = [];
   let totalPortfolioValue = 0;
 
   for (const stock of portfolio) {
-    const currentPrice = stockPriceMap.get(stock.name) || 0; 
+    const currentPrice = stockPriceMap.get(stock.name) || 0;
     const currentValue = currentPrice * stock.quantity;
     const buyValue = stock.buyPrice * stock.quantity;
     const gainLoss = currentValue - buyValue;
     const gainLossPercent = buyValue > 0 ? (gainLoss / buyValue) * 100 : 0;
     const daysSinceBuy = differenceInDays(new Date(), new Date(stock.buyDate));
-    
+
     let remainingGain: number | undefined = undefined;
     if (stock.targetPrice && stock.targetPrice > 0 && stock.targetPrice > currentPrice) {
       remainingGain = (stock.targetPrice - currentPrice) * stock.quantity;
@@ -286,9 +286,9 @@ export async function recordSale(prevState: any, formData: FormData) {
       message: 'Failed to record sale. Please check the form details.',
     };
   }
-  
+
   const { stockId, sellDate, sellPrice } = validatedFields.data;
-  
+
   await ensureDataDirExists();
   let portfolio = await readCsvFile<StockPurchase>(ACTIVE_STOCK_CSV_PATH, ACTIVE_STOCK_HEADERS, parseStockPurchase);
   const stockIndex = portfolio.findIndex(s => s.id === stockId);
@@ -303,7 +303,7 @@ export async function recordSale(prevState: any, formData: FormData) {
   const gain = sellValue - buyValue;
   const daysHeld = differenceInDays(new Date(sellDate), new Date(stockToSell.buyDate));
   const percentGain = buyValue > 0 ? (gain / buyValue) * 100 : (sellValue > 0 ? Infinity : 0); // Handle 0 buyValue
-  
+
   let annualizedGainPercent: number | undefined = undefined;
   if (daysHeld > 0 && buyValue > 0) {
     annualizedGainPercent = (percentGain / daysHeld) * 365;
@@ -347,30 +347,20 @@ export async function getClosedPositions(): Promise<ClosedPosition[]> {
   return [...closedPositions].sort((a,b) => new Date(b.sellDate).getTime() - new Date(a.sellDate).getTime());
 }
 
-export async function getStockSuggestions(query: string): Promise<StockSuggestion[]> {
+export async function getStockSuggestions(query: string): Promise<string[]> {
   if (!query) return [];
-  
+
   const googleSheetStocks = await getParsedGoogleSheetData();
   if (googleSheetStocks.length === 0) {
     console.warn("Could not fetch stock suggestions from Google Sheet or sheet is empty.");
     return [];
   }
-  
-  const suggestions: StockSuggestion[] = googleSheetStocks
-    .map(stockData => {
-      const name = stockData['name']; 
-      const symbol = stockData['symbol']; 
-      if (name && symbol) {
-        return { name, symbol };
-      }
-      return null;
-    })
-    .filter((stock): stock is StockSuggestion => 
-      !!(stock && stock.name && stock.symbol && stock.name.toLowerCase().includes(query.toLowerCase()))
+
+  const suggestions: string[] = googleSheetStocks
+    .map(stockData => stockData['name']) // Get only the name
+    .filter((name): name is string => // Ensure name is a string and not null/undefined
+      !!name && name.toLowerCase().includes(query.toLowerCase())
     );
-    
+
   return suggestions.slice(0, 10); // Return top 10 matches
 }
-
-
-    

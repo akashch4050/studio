@@ -2,7 +2,6 @@
 "use client";
 
 import { useEffect, useState, useCallback, useActionState, startTransition } from 'react';
-import { useFormStatus } from 'react-dom';
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -10,7 +9,6 @@ import { format } from "date-fns";
 import { CalendarIcon, Loader2, Search } from "lucide-react";
 
 import { addStockPurchase, getStockSuggestions } from '@/app/actions';
-import type { StockSuggestion } from '@/lib/definitions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -30,7 +28,7 @@ const AddStockFormSchema = z.object({
 type AddStockFormValues = z.infer<typeof AddStockFormSchema>;
 
 function SubmitButton() {
-  const { pending } = useFormStatus();
+  const { pending } = useActionState();
   return (
     <Button type="submit" className="w-full" disabled={pending}>
       {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
@@ -43,8 +41,8 @@ export function AddStockForm() {
   const { toast } = useToast();
   const [initialState, setInitialState] = useState<{ message: string | null; errors?: { [key: string]: string[] | undefined } | null }>({ message: null, errors: {} });
   const [state, formAction] = useActionState(addStockPurchase, initialState);
-  
-  const [suggestions, setSuggestions] = useState<StockSuggestion[]>([]);
+
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
   const form = useForm<AddStockFormValues>({
@@ -58,15 +56,15 @@ export function AddStockForm() {
     },
   });
 
-  useEffect(() => {
-    if (form.getValues('buyDate') === undefined) {
+ useEffect(() => {
+    if (form.getValues("buyDate") === undefined) {
       form.setValue("buyDate", new Date(), {
-        shouldValidate: false, 
-        shouldDirty: true // Mark as dirty so it's included in submission if unchanged by user
+        shouldValidate: false,
+        shouldDirty: true,
       });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.setValue, form.getValues]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.setValue]);
 
 
   const watchedStockName = form.watch("name");
@@ -102,8 +100,8 @@ export function AddStockForm() {
         targetPrice: undefined,
         quantity: undefined,
       });
-      setInitialState({ message: null, errors: {} }); 
-    } else if (state?.message || state?.errors && Object.keys(state.errors).length > 0) { 
+      setInitialState({ message: null, errors: {} });
+    } else if (state?.message || (state?.errors && Object.keys(state.errors).length > 0)) {
        toast({
         title: "Error",
         description: state.message || "Please check the form for errors.",
@@ -118,15 +116,15 @@ export function AddStockForm() {
       });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, toast]);
+  }, [state, toast, form.reset, form.setError]);
 
 
-  const handleSuggestionClick = (suggestion: StockSuggestion) => {
-    form.setValue("name", suggestion.name, { shouldValidate: true });
+  const handleSuggestionClick = (name: string) => {
+    form.setValue("name", name, { shouldValidate: true });
     setSuggestions([]);
     setShowSuggestions(false);
   };
-  
+
   const handleSubmit = (data: AddStockFormValues) => {
     const formData = new FormData();
     formData.append('name', data.name);
@@ -168,13 +166,13 @@ export function AddStockForm() {
         </div>
         {showSuggestions && suggestions.length > 0 && (
           <ul className="absolute z-10 w-full bg-card border rounded-md shadow-lg max-h-60 overflow-y-auto mt-1">
-            {suggestions.map((s, index) => (
+            {suggestions.map((name, index) => (
               <li
                 key={index}
                 className="px-3 py-2 hover:bg-secondary cursor-pointer text-sm"
-                onClick={() => handleSuggestionClick(s)}
+                onClick={() => handleSuggestionClick(name)}
               >
-                {s.name} ({s.symbol})
+                {name}
               </li>
             ))}
           </ul>
@@ -225,8 +223,7 @@ export function AddStockForm() {
             className={form.formState.errors.buyPrice || state?.errors?.buyPrice ? "border-destructive" : ""}
           />
           {form.formState.errors.buyPrice && <p className="text-sm text-destructive">{form.formState.errors.buyPrice.message}</p>}
-          {state?.errors?.buyPrice && <p className
-="text-sm text-destructive">{state.errors.buyPrice[0]}</p>}
+          {state?.errors?.buyPrice && <p className="text-sm text-destructive">{state.errors.buyPrice[0]}</p>}
         </div>
 
         <div className="space-y-2">
@@ -243,7 +240,7 @@ export function AddStockForm() {
           {state?.errors?.quantity && <p className="text-sm text-destructive">{state.errors.quantity[0]}</p>}
         </div>
       </div>
-      
+
       <div className="space-y-2">
         <Label htmlFor="targetPrice">Target Price per Share (Optional)</Label>
         <Input
@@ -257,12 +254,10 @@ export function AddStockForm() {
         {form.formState.errors.targetPrice && <p className="text-sm text-destructive">{form.formState.errors.targetPrice.message}</p>}
         {state?.errors?.targetPrice && <p className="text-sm text-destructive">{state.errors.targetPrice[0]}</p>}
       </div>
-      
+
       {state?.message && !state.message.startsWith('Added') && (!state.errors || Object.keys(state.errors).length === 0) && <p className="text-sm text-destructive text-center">{state.message}</p>}
 
       <SubmitButton />
     </form>
   );
 }
-
-    
