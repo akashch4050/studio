@@ -15,39 +15,31 @@ let closedPositions: ClosedPosition[] = [
   // { id: '3', name: 'Old Stock C', buyDate: '2022-05-01', buyPrice: 50, quantity: 20, buyValue: 1000, sellDate: '2022-12-01', sellPrice: 75, sellValue: 1500, gain: 500, daysHeld: 214, percentGain: 50, annualizedGainPercent: 85.28 }
 ];
 
-// TODO: Replace this mock data by fetching and parsing data from the Google Sheet URL below.
-// For example, you might publish your Google Sheet as a CSV and fetch it.
-const GOOGLE_SHEET_URL_PLACEHOLDER = "YOUR_GOOGLE_SHEET_LINK_HERE";
+// This URL should contain the link to your published Google Sheet CSV.
+const GOOGLE_SHEET_URL_PLACEHOLDER = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRMjtSRxkcX_Tmc_ru9O7xPxaymgKPDiy_tThfBwklQbDP6JjCDTxSN-OaXS6P6Dqits72O7k8GQKAz/pub?gid=0&single=true&output=csv";
 
-const GOOGLE_SHEET_CSV_DATA = `Stock Name,Symbol
-Reliance Industries,RELIANCE
-Tata Consultancy Services,TCS
-HDFC Bank,HDFCBANK
-Infosys,INFY
-ICICI Bank,ICICIBANK
-Hindustan Unilever,HINDUNILVR
-State Bank of India,SBIN
-Bajaj Finance,BAJFINANCE
-Bharti Airtel,BHARTIARTL
-Kotak Mahindra Bank,KOTAKBANK
-Advanced Micro Devices,AMD
-NVIDIA Corporation,NVDA
-Apple Inc.,AAPL
-Microsoft Corporation,MSFT
-Alphabet Inc. (Google),GOOGL
-Amazon.com Inc.,AMZN
-Tesla Inc.,TSLA
-Meta Platforms Inc.,META
-`;
+let fetchedGoogleSheetCsvData: string | null = null;
 
-const validStockNamesFromSheet = GOOGLE_SHEET_CSV_DATA
-  .split('\n')
-  .slice(1) // Skip header
-  .map(line => {
-    const [name] = line.split(',');
-    return name?.trim();
-  })
-  .filter((name): name is string => !!name); // Type guard to filter out undefined/empty and ensure string array
+async function ensureGoogleSheetCsvDataFetched(): Promise<string> {
+  if (fetchedGoogleSheetCsvData !== null) {
+    return fetchedGoogleSheetCsvData;
+  }
+  try {
+    const response = await fetch(GOOGLE_SHEET_URL_PLACEHOLDER, { cache: 'no-store' }); // Fetch fresh data
+    if (!response.ok) {
+      console.error(`Failed to fetch Google Sheet: ${response.status} ${response.statusText}`);
+      fetchedGoogleSheetCsvData = ""; // Mark as fetched (empty) to avoid retrying constantly on permanent errors
+      return "";
+    }
+    const csvText = await response.text();
+    fetchedGoogleSheetCsvData = csvText;
+    return fetchedGoogleSheetCsvData;
+  } catch (error) {
+    console.error("Error fetching or parsing Google Sheet data:", error);
+    fetchedGoogleSheetCsvData = ""; // Mark as fetched (empty) to avoid retrying
+    return "";
+  }
+}
 
 // Schemas for validation
 const StockPurchaseSchema = z.object({
@@ -77,14 +69,31 @@ export async function addStockPurchase(prevState: any, formData: FormData) {
 
   const data = validatedFields.data;
 
+  const csvData = await ensureGoogleSheetCsvDataFetched();
+  if (!csvData) {
+    return {
+      errors: { ...validatedFields.error.flatten().fieldErrors, name: ["Could not load stock list from Google Sheet. Please try again later."] },
+      message: 'Failed to validate stock name due to data loading issue from Google Sheet.',
+    };
+  }
+
+  const validStockNamesFromSheet = csvData
+    .split('\n')
+    .slice(1) // Skip header
+    .map(line => {
+      const [name] = line.split(',');
+      return name?.trim();
+    })
+    .filter((name): name is string => !!name);
+
   // Validate if the stock name is from the predefined list
   if (!validStockNamesFromSheet.includes(data.name)) {
     return {
       errors: {
-        ...validatedFields.error.flatten().fieldErrors, // Preserve other errors
-        name: ["Please select a valid stock from the suggestions list."],
+        ...validatedFields.error.flatten().fieldErrors,
+        name: ["Please select a valid stock from the suggestions list. The stock name is not found in the linked Google Sheet."],
       },
-      message: 'Invalid stock name provided.',
+      message: 'Invalid stock name provided. It does not match any stock in the Google Sheet.',
     };
   }
 
@@ -211,18 +220,22 @@ export async function getClosedPositions(): Promise<ClosedPosition[]> {
 
 export async function getStockSuggestions(query: string): Promise<StockSuggestion[]> {
   if (!query) return [];
-  // Simulate API delay
-  await new Promise(resolve => setTimeout(resolve, 100));
   
-  const suggestions: StockSuggestion[] = GOOGLE_SHEET_CSV_DATA
+  const csvData = await ensureGoogleSheetCsvDataFetched();
+  if (!csvData) {
+    // Optionally, log an error or inform the user that suggestions couldn't be loaded
+    console.error("Could not fetch stock suggestions from Google Sheet.");
+    return [];
+  }
+  
+  const suggestions: StockSuggestion[] = csvData
     .split('\n')
     .slice(1) // Skip header
     .map(line => {
       const [name, symbol] = line.split(',');
       return { name: name?.trim(), symbol: symbol?.trim() };
     })
-    .filter((stock): stock is StockSuggestion => !!(stock.name && stock.symbol && stock.name.toLowerCase().includes(query.toLowerCase()))); // Type guard
+    .filter((stock): stock is StockSuggestion => !!(stock.name && stock.symbol && stock.name.toLowerCase().includes(query.toLowerCase())));
     
   return suggestions.slice(0, 10); // Limit suggestions
 }
-
