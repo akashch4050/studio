@@ -1,3 +1,4 @@
+
 "use server";
 
 import { revalidatePath } from 'next/cache';
@@ -13,6 +14,10 @@ let portfolio: StockPurchase[] = [
 let closedPositions: ClosedPosition[] = [
   // { id: '3', name: 'Old Stock C', buyDate: '2022-05-01', buyPrice: 50, quantity: 20, buyValue: 1000, sellDate: '2022-12-01', sellPrice: 75, sellValue: 1500, gain: 500, daysHeld: 214, percentGain: 50, annualizedGainPercent: 85.28 }
 ];
+
+// TODO: Replace this mock data by fetching and parsing data from the Google Sheet URL below.
+// For example, you might publish your Google Sheet as a CSV and fetch it.
+const GOOGLE_SHEET_URL_PLACEHOLDER = "YOUR_GOOGLE_SHEET_LINK_HERE";
 
 const GOOGLE_SHEET_CSV_DATA = `Stock Name,Symbol
 Reliance Industries,RELIANCE
@@ -188,6 +193,7 @@ export async function getStockSuggestions(query: string): Promise<StockSuggestio
   // Simulate API delay
   await new Promise(resolve => setTimeout(resolve, 100));
   
+  // In a real application, you would fetch and parse data from GOOGLE_SHEET_URL_PLACEHOLDER here.
   const suggestions: StockSuggestion[] = GOOGLE_SHEET_CSV_DATA
     .split('\n')
     .slice(1) // Skip header
@@ -199,3 +205,4 @@ export async function getStockSuggestions(query: string): Promise<StockSuggestio
     
   return suggestions.slice(0, 10); // Limit suggestions
 }
+
