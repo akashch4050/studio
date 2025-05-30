@@ -40,6 +40,15 @@ Tesla Inc.,TSLA
 Meta Platforms Inc.,META
 `;
 
+const validStockNamesFromSheet = GOOGLE_SHEET_CSV_DATA
+  .split('\n')
+  .slice(1) // Skip header
+  .map(line => {
+    const [name] = line.split(',');
+    return name?.trim();
+  })
+  .filter((name): name is string => !!name); // Type guard to filter out undefined/empty and ensure string array
+
 // Schemas for validation
 const StockPurchaseSchema = z.object({
   name: z.string().min(1, "Stock name is required"),
@@ -67,6 +76,18 @@ export async function addStockPurchase(prevState: any, formData: FormData) {
   }
 
   const data = validatedFields.data;
+
+  // Validate if the stock name is from the predefined list
+  if (!validStockNamesFromSheet.includes(data.name)) {
+    return {
+      errors: {
+        ...validatedFields.error.flatten().fieldErrors, // Preserve other errors
+        name: ["Please select a valid stock from the suggestions list."],
+      },
+      message: 'Invalid stock name provided.',
+    };
+  }
+
   const newStock: StockPurchase = {
     id: Date.now().toString(), // Simple unique ID
     name: data.name,
@@ -193,7 +214,6 @@ export async function getStockSuggestions(query: string): Promise<StockSuggestio
   // Simulate API delay
   await new Promise(resolve => setTimeout(resolve, 100));
   
-  // In a real application, you would fetch and parse data from GOOGLE_SHEET_URL_PLACEHOLDER here.
   const suggestions: StockSuggestion[] = GOOGLE_SHEET_CSV_DATA
     .split('\n')
     .slice(1) // Skip header
@@ -201,7 +221,7 @@ export async function getStockSuggestions(query: string): Promise<StockSuggestio
       const [name, symbol] = line.split(',');
       return { name: name?.trim(), symbol: symbol?.trim() };
     })
-    .filter(stock => stock.name && stock.symbol && stock.name.toLowerCase().includes(query.toLowerCase()));
+    .filter((stock): stock is StockSuggestion => !!(stock.name && stock.symbol && stock.name.toLowerCase().includes(query.toLowerCase()))); // Type guard
     
   return suggestions.slice(0, 10); // Limit suggestions
 }

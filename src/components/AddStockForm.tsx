@@ -21,7 +21,7 @@ import { useToast } from "@/hooks/use-toast";
 
 const AddStockFormSchema = z.object({
   name: z.string().min(1, "Stock name is required"),
-  buyDate: z.date({ required_error: "Buy date is required."}).optional(), // Optional to allow undefined initial state
+  buyDate: z.date({ required_error: "Buy date is required."}).optional(),
   targetPrice: z.coerce.number().positive("Target price must be positive").optional().or(z.literal('')),
   quantity: z.coerce.number().int().positive("Quantity must be a positive integer"),
   buyPrice: z.coerce.number().positive("Buy price must be a positive number"),
@@ -41,26 +41,26 @@ function SubmitButton() {
 
 export function AddStockForm() {
   const { toast } = useToast();
-  const [initialState, setInitialState] = useState<{ message: string | null; errors: any }>({ message: null, errors: {} });
+  const [initialState, setInitialState] = useState<{ message: string | null; errors?: { [key: string]: string[] | undefined } | null }>({ message: null, errors: {} });
   const [state, formAction] = useActionState(addStockPurchase, initialState);
   
   const [suggestions, setSuggestions] = useState<StockSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [stockNameQuery, setStockNameQuery] = useState("");
 
   const form = useForm<AddStockFormValues>({
     resolver: zodResolver(AddStockFormSchema),
     defaultValues: {
       name: "",
-      buyDate: undefined, // Initialize as undefined
+      buyDate: undefined,
       buyPrice: undefined,
       targetPrice: undefined,
       quantity: undefined,
     },
   });
 
+  const watchedStockName = form.watch("name");
+
   useEffect(() => {
-    // Set default date on client-side after hydration to avoid mismatch
     if (form.getValues('buyDate') === undefined) {
       form.setValue("buyDate", new Date(), {
         shouldValidate: false, 
@@ -68,30 +68,25 @@ export function AddStockForm() {
       });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Runs once after initial client render
+  }, []);
 
   const fetchSuggestions = useCallback(async (query: string) => {
-    if (query.length > 1) {
-      const result = await getStockSuggestions(query);
-      setSuggestions(result);
-      setShowSuggestions(true);
-    } else {
-      setSuggestions([]);
-      setShowSuggestions(false);
-    }
+    const result = await getStockSuggestions(query);
+    setSuggestions(result);
+    setShowSuggestions(result.length > 0); // Show suggestions only if there are any
   }, []);
 
   useEffect(() => {
-    if (stockNameQuery) {
+    if (watchedStockName && watchedStockName.length > 1) {
       const debounceTimer = setTimeout(() => {
-        fetchSuggestions(stockNameQuery);
+        fetchSuggestions(watchedStockName);
       }, 300);
       return () => clearTimeout(debounceTimer);
     } else {
       setSuggestions([]);
       setShowSuggestions(false);
     }
-  }, [stockNameQuery, fetchSuggestions]);
+  }, [watchedStockName, fetchSuggestions]);
 
   useEffect(() => {
     if (state?.message?.startsWith('Added')) {
@@ -99,34 +94,35 @@ export function AddStockForm() {
         title: "Success!",
         description: state.message,
       });
-      form.reset({ // Reset with new defaults, including client-side new Date()
+      form.reset({
         name: "",
         buyDate: new Date(),
         buyPrice: undefined,
         targetPrice: undefined,
         quantity: undefined,
       });
-      setStockNameQuery(""); 
       setInitialState({ message: null, errors: {} }); 
     } else if (state?.message && state?.errors) { 
        toast({
         title: "Error",
-        description: "Please check the form for errors.",
+        description: state.message || "Please check the form for errors.",
         variant: "destructive",
       });
+       // Update form errors from server state
+       Object.keys(state.errors || {}).forEach(key => {
+        const fieldKey = key as keyof AddStockFormValues;
+        const errorMessages = state.errors?.[fieldKey];
+        if (errorMessages && errorMessages.length > 0) {
+          form.setError(fieldKey, { type: 'server', message: errorMessages[0] });
+        }
+      });
     }
-  }, [state, toast, form]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, toast, form.reset, form.setError]);
 
-
-  const handleStockNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const query = e.target.value;
-    form.setValue("name", query);
-    setStockNameQuery(query);
-  };
 
   const handleSuggestionClick = (suggestion: StockSuggestion) => {
-    form.setValue("name", suggestion.name);
-    setStockNameQuery(suggestion.name);
+    form.setValue("name", suggestion.name, { shouldValidate: true });
     setSuggestions([]);
     setShowSuggestions(false);
   };
@@ -134,21 +130,18 @@ export function AddStockForm() {
   const handleSubmit = (data: AddStockFormValues) => {
     const formData = new FormData();
     formData.append('name', data.name);
-    if (data.buyDate) { // Ensure buyDate is not undefined
+    if (data.buyDate) {
         formData.append('buyDate', format(data.buyDate, "yyyy-MM-dd"));
     } else {
-        // Handle case where buyDate might still be undefined, though unlikely with useEffect
-        // Or ensure schema makes it required before submission logic
-        formData.append('buyDate', format(new Date(), "yyyy-MM-dd")); // Fallback, or handle error
+        formData.append('buyDate', format(new Date(), "yyyy-MM-dd"));
     }
     formData.append('buyPrice', data.buyPrice.toString());
-    if (data.targetPrice) {
+    if (data.targetPrice !== '' && data.targetPrice !== undefined) { // Check for empty string from optional coerce
       formData.append('targetPrice', data.targetPrice.toString());
     }
     formData.append('quantity', data.quantity.toString());
     formAction(formData);
   };
-
 
   return (
     <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
@@ -160,10 +153,13 @@ export function AddStockForm() {
             id="name"
             placeholder="e.g. Apple Inc."
             {...form.register("name")}
-            value={stockNameQuery}
-            onChange={handleStockNameChange}
-            onFocus={() => stockNameQuery && fetchSuggestions(stockNameQuery)}
-            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+            onFocus={() => {
+              const currentName = form.getValues("name");
+              if (currentName && currentName.length > 1) {
+                fetchSuggestions(currentName);
+              }
+            }}
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)} // Delay to allow click on suggestion
             className={cn("pl-10", form.formState.errors.name || state?.errors?.name ? "border-destructive" : "")}
             autoComplete="off"
           />
@@ -182,7 +178,8 @@ export function AddStockForm() {
           </ul>
         )}
         {form.formState.errors.name && <p className="text-sm text-destructive">{form.formState.errors.name.message}</p>}
-        {state?.errors?.name && <p className="text-sm text-destructive">{state.errors.name[0]}</p>}
+        {/* Server-side error for name, if not already handled by form.setError */}
+        {!form.formState.errors.name && state?.errors?.name && <p className="text-sm text-destructive">{state.errors.name[0]}</p>}
       </div>
 
       <div className="space-y-2">
@@ -205,7 +202,7 @@ export function AddStockForm() {
             <Calendar
               mode="single"
               selected={form.watch("buyDate")}
-              onSelect={(date) => form.setValue("buyDate", date || new Date() )}
+              onSelect={(date) => form.setValue("buyDate", date || new Date(), { shouldValidate: true })}
               initialFocus
               disabled={(date) => date > new Date() || date < new Date("1900-01-01")}
             />
@@ -259,8 +256,7 @@ export function AddStockForm() {
         {state?.errors?.targetPrice && <p className="text-sm text-destructive">{state.errors.targetPrice[0]}</p>}
       </div>
       
-      {state?.message && !state.message.startsWith('Added') && <p className="text-sm text-destructive text-center">{state.message}</p>}
-
+      {state?.message && !state.message.startsWith('Added') && !state.errors?.name && <p className="text-sm text-destructive text-center">{state.message}</p>}
 
       <SubmitButton />
     </form>
